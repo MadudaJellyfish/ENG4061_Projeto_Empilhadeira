@@ -1,9 +1,13 @@
 import paho.mqtt.client as mqtt
 from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
+import os
+from dotenv import load_dotenv
 
-BROKER = "mqtt.janks.dev.br"     
-PORT = 8883
+load_dotenv()
+
+BROKER = os.getenv("BROKER")     
+PORT = os.getenv("PORT")
 
 # Variáveis globais
 arduino_serial = None 
@@ -28,7 +32,6 @@ def on_message(client, userdata, msg):
     # Repassa a instrução
     if topico == "comando":
         comando = payload.strip().upper()
-        
 
         if comando.startswith("BUSCAR_TAG:"):
             print(f"Enviando instrução de busca para o Arduino: {comando}")
@@ -55,7 +58,9 @@ def inicializar_mqtt(referencia_serial):
     arduino_serial = referencia_serial
     
     client = mqtt.Client(client_id="robotica_1b")
-    client.username_pw_set("aula", "zowmad-tavQez")
+    user = os.getenv("USER") 
+    password = os.getenv("PASSWORD") 
+    client.username_pw_set(user, password)
     client.tls_set()
     
     client.on_connect = on_connect

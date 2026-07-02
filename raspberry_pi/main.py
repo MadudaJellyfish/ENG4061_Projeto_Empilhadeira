@@ -101,7 +101,6 @@ def main():
                         
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            # ... (código anterior do main.py continua igual)
             if cam_params:
                 results = at_detector.detect(gray, estimate_tag_pose=True, camera_params=cam_params, tag_size=TAG_SIZE)
             else:
@@ -118,7 +117,6 @@ def main():
                     tag_yaw = get_robot_yaw(r.pose_R)
                     info = f"ID:{r.tag_id} Z:{tz:.2f}m Pos:{bearing:.1f}deg Ori:{tag_yaw:.1f}deg"
                     
-                    # --- NOVO: Envio inteligente para o Arduino ---
                     if comunicacao_mqtt.is_modo_automatico():
                         if ser and ser.is_open:
                             # formato VIS_COMP:ID;DIST;ANG
