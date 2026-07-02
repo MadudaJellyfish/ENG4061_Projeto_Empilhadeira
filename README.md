@@ -8,6 +8,7 @@ Para o programa main.py da pasta Raspberry é necessário estabelecer conexão v
 1. Abra um terminal
 2. Insira o seguinte comando
 ssh puc@"Endereço IP do raspberry"
-3. Realize o login
+  $ ssh puc@192.168.1.112
+4. Realize o login
 
 
