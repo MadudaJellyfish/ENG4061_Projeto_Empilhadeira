@@ -12,3 +12,12 @@ ssh puc@"Endereço IP do raspberry"
 4. Realize o login
 
 
+Para rodar Servidor:
+python -m venv .venv
+*mostrar diferentes formas de ativar a venv*
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+
+
