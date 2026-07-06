@@ -82,6 +82,8 @@ def iniciar_websocket():
     ws.run_forever()
 
 # --- Lógica de Controle ---
+cancelar_parada_ids = {} # NOVO: Memória para ignorar o "falso soltar" da tecla
+
 def alternar_modo_manual():
     global modo_manual_ativo
     modo_manual_ativo = not modo_manual_ativo
@@ -96,6 +98,11 @@ def alternar_modo_manual():
     root.focus_set() 
 
 def iniciar_movimento(direcao, event=None):
+    # Se havia uma ordem de parada falsa agendada, nós a cancelamos!
+    if direcao in cancelar_parada_ids and cancelar_parada_ids[direcao] is not None:
+        root.after_cancel(cancelar_parada_ids[direcao])
+        cancelar_parada_ids[direcao] = None
+
     if modo_manual_ativo:
         if not estado_teclas[direcao]:
             estado_teclas[direcao] = True
@@ -106,14 +113,20 @@ def iniciar_movimento(direcao, event=None):
             print("Aviso: Ative o modo manual para pilotar a empilhadeira.")
 
 def parar_movimento(direcao, event=None):
+    # Se foi um evento de teclado (event is not None), aguarda 50ms para confirmar
+    if event is not None:
+        cancelar_parada_ids[direcao] = root.after(50, lambda: executar_parada(direcao))
+    else:
+        # Se foi clique de mouse, para na mesma hora
+        executar_parada(direcao)
+
+def executar_parada(direcao):
     if estado_teclas[direcao]:
         estado_teclas[direcao] = False
-        if modo_manual_ativo:
-            # ATUALIZADO: Separa o comando de parada das rodas e dos garfos
-            if direcao in ["FRENTE", "TRAS", "ESQUERDA", "DIREITA"]:
-                envia_mensagem("PARAR_ANDAR", "comando")
-            elif direcao in ["SUBIR", "DESCER"]:
-                envia_mensagem("PARAR_SUBIR", "comando")
+        if direcao in ["FRENTE", "TRAS", "ESQUERDA", "DIREITA"]:
+            envia_mensagem("PARAR_ANDAR", "comando")
+        elif direcao in ["SUBIR", "DESCER"]:
+            envia_mensagem("PARAR_SUBIR", "comando")
 
 # Setup MQTT
 client = mqtt.Client(client_id="robotica_servidor_1b")
