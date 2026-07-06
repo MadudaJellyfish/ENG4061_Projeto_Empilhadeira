@@ -36,8 +36,8 @@ async def stream_video(websocket, *args):
 
 async def run_ws_server():
     # O "async with" garante que o servidor suba corretamente já atrelado ao loop ativo
-    async with websockets.serve(stream_video, "0.0.0.0", 8765):
-        print("Servidor de Vídeo WebSocket iniciado na porta 8765")
+    async with websockets.serve(stream_video, "0.0.0.0", 8766):
+        print("Servidor de Vídeo WebSocket iniciado na porta 8766")
         # Cria um futuro vazio e aguarda ele infinitamente (substitui o loop.run_forever())
         await asyncio.Future() 
 
