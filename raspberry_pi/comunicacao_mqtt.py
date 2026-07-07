@@ -63,9 +63,9 @@ def inicializar_mqtt(referencia_serial):
     arduino_serial = referencia_serial
     
     client = mqtt.Client(client_id="robotica_1b")
-    user = os.getenv("USER") 
-    password = os.getenv("PASSWORD") 
-    client.username_pw_set(user, password)
+    #user = os.getenv("USER") 
+    #password = os.getenv("PASSWORD") 
+    client.username_pw_set("aula", "zowmad-tavQez")
     client.tls_set()
     
     client.on_connect = on_connect
@@ -74,7 +74,7 @@ def inicializar_mqtt(referencia_serial):
     properties = Properties(PacketTypes.PUBLISH)
     properties.MessageExpiryInterval = 120
     
-    client.connect(BROKER, PORT, keepalive=60)
+    client.connect("mqtt.janks.dev.br", 8883, keepalive=60)
     client.loop_start() 
     
     return client
