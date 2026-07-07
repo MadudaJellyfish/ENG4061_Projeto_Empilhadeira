@@ -23,6 +23,11 @@ WS_PORT = int(os.getenv("WS_PORT"))
 # Variáveis globais
 latest_frame = None
 modo_manual_ativo = False
+MQTT_PREFIX = "BMML"
+
+
+def mqtt_topic(nome):
+    return f"{MQTT_PREFIX}/{nome}"
 
 # --- ATUALIZADO: Rastreador de teclas agora inclui os garfos ---
 estado_teclas = {
@@ -37,7 +42,7 @@ estado_teclas = {
 # --- Lógica MQTT (Apenas Comandos) ---
 def on_connect(client, userdata, flags, rc):
     print("Código MQTT conectado:", rc)
-    client.subscribe("comando") 
+    client.subscribe(mqtt_topic("comando")) 
 
 def on_message(client, userdata, msg):
     topico = msg.topic
@@ -48,8 +53,9 @@ def on_message(client, userdata, msg):
         print(f"Erro ao ler payload: {e}")
 
 def envia_mensagem(msg, topico):
-    print(f"Enviando '{msg}' -> {topico}")
-    client.publish(topico, msg, qos=2, properties=properties)
+    topico_com_prefixo = mqtt_topic(topico)
+    print(f"Enviando '{msg}' -> {topico_com_prefixo}")
+    client.publish(topico_com_prefixo, msg, qos=2, properties=properties)
 
 # --- Lógica WebSocket (Apenas Imagem) ---
 def on_ws_message(ws, message):

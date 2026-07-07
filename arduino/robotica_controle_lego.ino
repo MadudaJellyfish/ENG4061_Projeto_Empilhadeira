@@ -123,6 +123,11 @@ void lerSegundoMotor()  { pulsosMotor2++; }
 
 // Atuador: recebe PWM LÓGICO (+ = frente) e aplica na ponte H.
 void controlaMotoresPWM(int pwm1, int pwm2) {
+  // --- NOVO: Trava de Segurança (Saturação) ---
+  // Garante que o Arduino nunca sofra overflow enviando valores > 255 ou < -255
+  pwm1 = constrain(pwm1, -255, 255);
+  pwm2 = constrain(pwm2, -255, 255);
+
   // Guarda o sentido lógico para "assinar" o RPM medido depois.
   sentidoM1 = (pwm1 >= 0) ? 1 : -1;
   sentidoM2 = (pwm2 >= 0) ? 1 : -1;
@@ -131,13 +136,23 @@ void controlaMotoresPWM(int pwm1, int pwm2) {
   int p1 = SENTIDO_M1 * pwm1;
   int p2 = SENTIDO_M2 * pwm2;
 
-  // Roda 1 (esquerda)
-  if (p1 >= 0) { analogWrite(primeiroMotorPin1, p1); digitalWrite(primeiroMotorPin2, LOW); }
-  else         { digitalWrite(primeiroMotorPin1, LOW); analogWrite(primeiroMotorPin2, -p1); }
+  // Motor 1 (Esquerda) - FRENTE é Pin1 LOW e Pin2 PWM
+  if (p1 >= 0) { 
+    digitalWrite(primeiroMotorPin1, LOW); 
+    analogWrite(primeiroMotorPin2, p1); 
+  } else { 
+    analogWrite(primeiroMotorPin1, abs(p1)); 
+    digitalWrite(primeiroMotorPin2, LOW); 
+  }
 
-  // Roda 2 (direita)
-  if (p2 >= 0) { analogWrite(segundoMotorPin1, p2); digitalWrite(segundoMotorPin2, LOW); }
-  else         { digitalWrite(segundoMotorPin1, LOW); analogWrite(segundoMotorPin2, -p2); }
+  // Motor 2 (Direita) - FRENTE é Pin1 LOW e Pin2 PWM
+  if (p2 >= 0) { 
+    digitalWrite(segundoMotorPin1, LOW); 
+    analogWrite(segundoMotorPin2, p2); 
+  } else { 
+    analogWrite(segundoMotorPin1, abs(p2)); 
+    digitalWrite(segundoMotorPin2, LOW); 
+  }
 }
 
 // Roda a cada 100 ms: fecha a malha de velocidade das duas rodas.
@@ -334,6 +349,7 @@ void loop() {
       Serial.println("Modo manual ativado!");
       modo_manual = true;
       estadoAtual = IDLE;
+      id_tag = -1; // <--- Reseta a Tag para não bugar ao voltar pro automático
       zeraPID();
       parar();
     }
@@ -341,8 +357,9 @@ void loop() {
       Serial.println("Modo automático ativado!");
       modo_manual = false;
       zeraPID();
-      // Se já temos um alvo, retoma a busca; senão, fica parado.
-      estadoAtual = (id_tag != -1) ? PROCURANDO : IDLE;
+      id_tag = -1;       // <--- Reseta a Tag antiga
+      estadoAtual = IDLE; // <--- Sempre inicia parado em IDLE esperando ordem!
+      parar();
     }
     else if (texto.startsWith("BUSCAR_TAG")) {
       // Vale em qualquer modo: registra o alvo. A busca só roda em automático.

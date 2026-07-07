@@ -12,6 +12,11 @@ PORT = int(os.getenv("PORT"))
 # Variáveis globais
 arduino_serial = None 
 modo_automatico = True # Inicia como True, combinando com o servidor.py
+MQTT_PREFIX = "BMML"
+
+
+def mqtt_topic(nome):
+    return f"{MQTT_PREFIX}/{nome}"
 
 # Função para o main.py consultar o estado atual
 def is_modo_automatico():
@@ -20,7 +25,7 @@ def is_modo_automatico():
 
 def on_connect(client, userdata, flags, rc):
     print(f"MQTT Conectado com código: {rc}")
-    client.subscribe("comando")
+    client.subscribe(mqtt_topic("comando"))
 
 def on_message(client, userdata, msg):
     global modo_automatico
@@ -30,7 +35,7 @@ def on_message(client, userdata, msg):
     print(f"MQTT Recebido - Tópico: {topico} | Mensagem: {payload}")
 
     # Repassa a instrução
-    if topico == "comando":
+    if topico == mqtt_topic("comando"):
         comando = payload.strip().upper()
 
         if comando.startswith("BUSCAR_TAG:"):
