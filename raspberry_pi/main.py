@@ -92,6 +92,9 @@ def main():
 
     print("Sistema iniciado. Iniciando detecção... Pressione Ctrl+C para sair.")
 
+    tempo_ultimo_envio_visao = 0.0
+    ultimo_comando_visao = None
+
     try:
         while True:
             ret, frame = cap.read()
@@ -119,9 +122,13 @@ def main():
                     
                     if comunicacao_mqtt.is_modo_automatico():
                         if ser and ser.is_open:
-                            # formato VIS_COMP:ID;DIST;ANG
+                            agora = time.time()
                             comando_visao = f"VIS_COMP:{r.tag_id};{tz:.2f};{bearing:.1f}\n"
-                            ser.write(comando_visao.encode('utf-8'))
+
+                            if agora - tempo_ultimo_envio_visao >= 0.2 or comando_visao != ultimo_comando_visao:
+                                ser.write(comando_visao.encode('utf-8'))
+                                tempo_ultimo_envio_visao = agora
+                                ultimo_comando_visao = comando_visao
                 else:
                     info = f"ID: {r.tag_id} (Sem Pose)"
 

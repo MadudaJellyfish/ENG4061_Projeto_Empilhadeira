@@ -47,13 +47,13 @@ const unsigned long APROX_MOVER_MS = 250;   // passo de aproximação: tempo and
 const unsigned long APROX_PAUSA_MS = 350;   // passo de aproximação: tempo parado
 
 // --- Critérios de chegada ---
-const float DIST_ALVO = 0.25;   // (m) considera "perto o suficiente" abaixo disso
+const float DIST_ALVO = 0.80;   // (m) considera "perto o suficiente" abaixo disso
 const float ANG_ALVO  = 8.0;    // (graus) considera "centralizado" abaixo disso
 
 // --- Sequência de busca (edite à vontade!) ---
 // Códigos: 0 = frente, 1 = vira direita, 2 = vira esquerda
 // O padrão {0,1,2,0} faz: frente -> direita -> esquerda -> frente -> (repete)
-const int SEQ_BUSCA[] = {0, 1, 2, 0};
+const int SEQ_BUSCA[] = {0, 1, 1, 2, 2, 0};
 const int NUM_PASSOS = sizeof(SEQ_BUSCA) / sizeof(SEQ_BUSCA[0]);
 
 // ======================================================================================
