@@ -8,7 +8,9 @@ SQUARE_SIZE = 0.025   # Tamanho do quadrado em METROS (ex: 2.5cm = 0.025)
 # Classe que organiza a calibração da camera
 class Calibration:
     def __init__(self):
-        self.capture = cv2.VideoCapture(0)
+        self.capture = cv2.VideoCapture(1)
+        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
         self.criterio = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
         
         # Modelo matemático do tabuleiro
@@ -119,9 +121,16 @@ class Calibration:
         mean_error = 0
         for i in range(len(self.objpoints)):
             imgpoints2, _ = cv2.projectPoints(self.objpoints[i], self.rvecs[i], self.tvecs[i], self.mtx, self.distort)
-            error = cv2.norm(self.imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
+            
+            # Padroniza os dois arrays para o formato exato que o OpenCV exige
+            pontos_reais = self.imgpoints[i].reshape(-1, 2).astype(np.float32)
+            pontos_projetados = imgpoints2.reshape(-1, 2).astype(np.float32)
+            
+            # Agora a comparação (norm) funciona perfeitamente
+            error = cv2.norm(pontos_reais, pontos_projetados, cv2.NORM_L2) / len(pontos_projetados)
             mean_error += error
-        print( "Total error: {}".format(mean_error/len(self.objpoints)) )
+            
+        print("Erro médio total (quanto menor, melhor): {}".format(mean_error/len(self.objpoints)))
 
 
 # ================ Camera Calibration =============
