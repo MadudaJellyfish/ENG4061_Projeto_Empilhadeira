@@ -8,7 +8,7 @@ import asyncio
 import websockets
 from pupil_apriltags import Detector
 
-# Importa o módulo que acabamos de criar
+# Importa o módulo de comunicacao_mqtt 
 import comunicacao_mqtt
 
 # --- Variável global para o Streaming WebSocket ---
@@ -23,7 +23,7 @@ async def stream_video(websocket, *args):
     
     while True:
         # Só envia se houver uma imagem E ela for diferente da que acabamos de enviar
-        if len(frame_bytes_ws) > 0 and frame_bytes_ws != ultimo_frame_enviado:
+        if len(frame_bytes_ws) > 0: # and frame_bytes_ws != ultimo_frame_enviado:
             try:
                 await websocket.send(frame_bytes_ws)
                 ultimo_frame_enviado = frame_bytes_ws

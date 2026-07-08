@@ -81,7 +81,6 @@ class Calibration:
         print ('distort: ', self.distort)
         
         print("Calibração salva com sucesso no arquivo 'params_multilaser.npz'!")
-        # ATUALIZADO: Salva com o nome esperado pelo main.py
         np.savez('params_multilaser.npz', mtx=self.mtx, dist=self.distort, rvecs=self.rvecs, tvecs=self.tvecs)
 
     # --------------------------------------- #
@@ -136,7 +135,7 @@ class Calibration:
 # ================ Camera Calibration =============
 
 calib_obj = Calibration()
-calib_obj.capture_chess_image() # Corrigido o nome da chamada da função
+calib_obj.capture_chess_image()
 
 if len(calib_obj.objpoints) > 0:
     print("Calibrando imagem...")

@@ -18,6 +18,25 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+python servidor.py
 
+Sobre o raspberry:
+rodar 
+pip install -r requirements.txt
 
+realizar a calibragem antes rodando calibragem.py
+gerar tabuleiro com
+https://calib.io/pages/camera-calibration-pattern-generator
+Para gerar o PDF exato que o seu código espera, preencha o site dessa forma:
 
+Target Type: Checkerboard
+
+Columns: 9
+
+Rows: 6
+
+Checker Width: 25 mm (isso equivale aos 0.025 metros do seu código)
+
+Page format: A4 (ou o papel que você tiver na impressora)
+
+rodar python main.py

@@ -31,7 +31,7 @@ status_var = None
 def mqtt_topic(nome):
     return f"{MQTT_PREFIX}/{nome}"
 
-# --- ATUALIZADO: Rastreador de teclas agora inclui os garfos ---
+# --- Rastreador de teclas agora inclui os garfos ---
 estado_teclas = {
     "FRENTE": False,
     "TRAS": False,
@@ -102,7 +102,7 @@ def iniciar_websocket():
     ws.run_forever()
 
 # --- Lógica de Controle ---
-cancelar_parada_ids = {} # NOVO: Memória para ignorar o "falso soltar" da tecla
+cancelar_parada_ids = {} # Memória para ignorar o "falso soltar" da tecla
 
 def alternar_modo_manual():
     global modo_manual_ativo
@@ -174,9 +174,7 @@ status_label.pack(fill="x", padx=10, pady=(10, 0))
 label = tk.Label(root, text="Aguardando imagem...", bg="black", fg="white")
 label.pack(pady=10)
 
-# =================================================================
 # --- Frame e controles para enviar o ID da Tag ---
-# =================================================================
 frame_busca = tk.Frame(root)
 frame_busca.pack(pady=5)
 
@@ -218,7 +216,6 @@ btn_esq.grid(row=2, column=0, padx=2)
 btn_dir.grid(row=2, column=2, padx=2)
 btn_tras.grid(row=3, column=1, pady=2)
 
-# --- ATUALIZADO: Novos Botões do Garfo ---
 # Colocamos eles na coluna 4 (com um espaçamento grande em x para separar do direcional)
 btn_subir = tk.Button(frame_controles, text="Subir Garfo (Q)", width=15, height=2, bg="#5bc0de")
 btn_descer = tk.Button(frame_controles, text="Descer Garfo (E)", width=15, height=2, bg="#5bc0de")

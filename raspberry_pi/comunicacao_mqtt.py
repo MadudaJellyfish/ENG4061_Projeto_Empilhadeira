@@ -72,8 +72,6 @@ def inicializar_mqtt(referencia_serial):
     arduino_serial = referencia_serial
     
     mqtt_client = mqtt.Client(client_id="robotica_1b")
-    #user = os.getenv("USER") 
-    #password = os.getenv("PASSWORD") 
     mqtt_client.username_pw_set("aula", "zowmad-tavQez")
     mqtt_client.tls_set()
     

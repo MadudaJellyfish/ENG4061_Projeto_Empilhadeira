@@ -1,8 +1,6 @@
 #include <Arduino.h>
 
-// ======================================================================================
 // Pinos
-// ======================================================================================
 int primeiroMotorPin1 = 2;   // Motor 1 = roda ESQUERDA
 int primeiroMotorPin2 = 3;
 
@@ -12,9 +10,10 @@ int segundoMotorPin2 = 5;
 int motorElevarPin1 = 6;
 int motorElevarPin2 = 7;
 
-// ======================================================================================
+int primeiroMotorEncoder = 18;
+int segundoMotorEncoder = 19;
+
 // Estado geral do robô
-// ======================================================================================
 int id_tag = -1;             // Tag que estamos procurando. -1 = nenhuma (fica parado)
 bool modo_manual = false;
 
@@ -29,43 +28,59 @@ bool  visao_valida = false;  // true = estamos enxergando a tag alvo agora
 unsigned long tempoUltimaVisao = 0;
 const unsigned long TIMEOUT_VISAO = 1500;  // ms sem ver a tag => consideramos "perdida"
 
-// ======================================================================================
-// PARÂMETROS DE AJUSTE  (mexa aqui testando no chão)
-// ======================================================================================
+// PARÂMETROS DE AJUSTE!!!!
 
-// --- Velocidade (PWM, 0 a 255). SEM PID: é a força que vai direto pro motor. ---
-// Comece baixo. Se o robô não sair do lugar, aumente. Se andar rápido demais, diminua.
-const int VEL_PROCURA = 140;   // velocidade durante a busca
-const int VEL_APROX   = 150;   // velocidade durante a aproximação
+// --- Alvo de VELOCIDADE (em RPM) ---
+// O controle P é quem transforma isso em PWM usando os encoders.
+// Ajuste observando: se a roda nem gira, aumente; se satura sempre no máximo, diminua.
+const float VEL_PROCURA = 60.0;   // RPM alvo durante a busca
+const float VEL_APROX   = 80.0;   // RPM alvo durante a aproximação
+
+// --- Controle de velocidade: SOMENTE PROPORCIONAL (P) ---
+const float Kp = 3.0;              // ganho proporcional. Maior = responde mais forte.
+                                   // Se der tranco/oscilar, diminua. Se ficar mole, aumente.
+const int   PWM_MAX = 200;         // teto de PWM (0..255). Segurança contra pico de corrente.
+                                   // Se ainda travar/dar pico, BAIXE este valor.
+const unsigned long INTERVALO_CONTROLE = 50;  // ms entre cada cálculo do P (janela de medição)
+const float PULSOS_POR_VOLTA = 20.0;          // CALIBRAR: pulsos do encoder em 1 volta da roda
 
 // --- Duração dos "passos curtos" (ms) ---
-// MOVER = quanto tempo ele anda em cada passo. PAUSA = quanto tempo ele para
-// entre um passo e outro (parado a câmera enxerga melhor, sem borrão).
 const unsigned long PROC_MOVER_MS  = 350;   // passo de busca: tempo andando
 const unsigned long PROC_PAUSA_MS  = 400;   // passo de busca: tempo parado olhando
 const unsigned long APROX_MOVER_MS = 250;   // passo de aproximação: tempo andando
 const unsigned long APROX_PAUSA_MS = 350;   // passo de aproximação: tempo parado
 
 // --- Critérios de chegada ---
-const float DIST_ALVO = 0.80;   // (m) considera "perto o suficiente" abaixo disso
+const float DIST_ALVO = 0.60;   // (m) considera "perto o suficiente" abaixo disso
 const float ANG_ALVO  = 8.0;    // (graus) considera "centralizado" abaixo disso
 
-// --- Sequência de busca (edite à vontade!) ---
+// --- Sequência de busca ---
 // Códigos: 0 = frente, 1 = vira direita, 2 = vira esquerda
-// O padrão {0,1,2,0} faz: frente -> direita -> esquerda -> frente -> (repete)
-const int SEQ_BUSCA[] = {0, 1, 1, 2, 2, 0};
+const int SEQ_BUSCA[] = {0, 1, 1, 2, 2, 2, 0};
 const int NUM_PASSOS = sizeof(SEQ_BUSCA) / sizeof(SEQ_BUSCA[0]);
 
-// ======================================================================================
 // Controle de tempo dos passos (não bloqueante - nada de delay())
-// ======================================================================================
 unsigned long tempoPasso = 0;   // millis() em que o passo/pausa atual começou
 bool emMovimento = false;       // true = andando neste passo | false = pausa
 int  passoBuscaIdx = 0;         // qual passo da SEQ_BUSCA estamos
 
-// ======================================================================================
+// ENCODERS + setpoints de velocidade
+volatile long pulsos1 = 0;   // contagem de pulsos do encoder da roda ESQUERDA
+volatile long pulsos2 = 0;   // contagem de pulsos do encoder da roda DIREITA
+
+// Velocidade alvo de cada roda, COM SINAL (+ = frente, - = ré).
+// As funções de movimento do modo automático só MEXEM nestes valores;
+// quem realmente aciona os motores é o controlaVelocidadeP().
+float setpointM1 = 0.0;
+float setpointM2 = 0.0;
+
+unsigned long tempoControleAnterior = 0;
+
+// Rotinas de interrupção: cada pulso do encoder incrementa o contador.
+void lerPrimeiroMotor() { pulsos1++; }
+void lerSegundoMotor()  { pulsos2++; }
+
 // Controle Manual do Robô  (IGUALZINHO ao original - não mexi em nada aqui)
-// ======================================================================================
 void irParaTras() {
   digitalWrite(primeiroMotorPin1, HIGH); digitalWrite(primeiroMotorPin2, LOW);
   digitalWrite(segundoMotorPin1, HIGH);  digitalWrite(segundoMotorPin2, LOW);
@@ -82,10 +97,6 @@ void irParaDireita() {
   digitalWrite(primeiroMotorPin1, LOW);  digitalWrite(primeiroMotorPin2, HIGH);
   digitalWrite(segundoMotorPin1, HIGH);  digitalWrite(segundoMotorPin2, LOW);
 }
-void parar() {
-  digitalWrite(primeiroMotorPin1, LOW);  digitalWrite(primeiroMotorPin2, LOW);
-  digitalWrite(segundoMotorPin1, LOW);   digitalWrite(segundoMotorPin2, LOW);
-}
 void subir() {
   digitalWrite(motorElevarPin1, HIGH); digitalWrite(motorElevarPin2, LOW);
 }
@@ -96,19 +107,82 @@ void pararElevacao() {
   digitalWrite(motorElevarPin1, LOW);  digitalWrite(motorElevarPin2, LOW);
 }
 
-// ======================================================================================
-// Movimento AUTOMÁTICO devagar (PWM fixo, SEM PID)
-// Usa a MESMA convenção de sentido do modo manual, só que com velocidade reduzida.
-// "Frente" de cada roda = Pin1 LOW + PWM no Pin2 (igual ao irParaFrente).
-// ======================================================================================
-void m1Frente(int v) { digitalWrite(primeiroMotorPin1, LOW); analogWrite(primeiroMotorPin2, v); }
-void m1Tras(int v)   { analogWrite(primeiroMotorPin1, v);    digitalWrite(primeiroMotorPin2, LOW); }
-void m2Frente(int v) { digitalWrite(segundoMotorPin1, LOW);  analogWrite(segundoMotorPin2, v); }
-void m2Tras(int v)   { analogWrite(segundoMotorPin1, v);     digitalWrite(segundoMotorPin2, LOW); }
+// PARAR: zera os setpoints (modo automático coasta até parar) E corta os pinos
+// na hora (garante parada imediata no modo manual, que não roda o controle P).
+void parar() {
+  setpointM1 = 0.0;
+  setpointM2 = 0.0;
+  digitalWrite(primeiroMotorPin1, LOW);  digitalWrite(primeiroMotorPin2, LOW);
+  digitalWrite(segundoMotorPin1, LOW);   digitalWrite(segundoMotorPin2, LOW);
+}
 
-void andarFrente(int v)   { m1Frente(v); m2Frente(v); }   // as duas pra frente
-void girarDireita(int v)  { m1Frente(v); m2Tras(v);   }   // esquerda frente, direita ré (= irParaDireita)
-void girarEsquerda(int v) { m1Tras(v);   m2Frente(v); }   // esquerda ré, direita frente (= irParaEsquerda)
+// Aplica um PWM COM SINAL em cada motor (+ = frente, - = ré),
+// seguindo a mesma convenção do modo manual (frente = Pin1 LOW + PWM no Pin2).
+void aplicaPWM_M1(int pwm) {
+  if (pwm >= 0) { digitalWrite(primeiroMotorPin1, LOW); analogWrite(primeiroMotorPin2, pwm); }
+  else          { analogWrite(primeiroMotorPin1, -pwm); digitalWrite(primeiroMotorPin2, LOW); }
+}
+void aplicaPWM_M2(int pwm) {
+  if (pwm >= 0) { digitalWrite(segundoMotorPin1, LOW); analogWrite(segundoMotorPin2, pwm); }
+  else          { analogWrite(segundoMotorPin1, -pwm); digitalWrite(segundoMotorPin2, LOW); }
+}
+
+// CONTROLE DE VELOCIDADE - SOMENTE P (proporcional)
+// Mede a RPM de cada roda pelos encoders e ajusta o PWM proporcional ao erro.
+//   PWM = Kp * (RPM_alvo - RPM_medido)
+// Como o encoder é de 1 canal (não mede sentido), "assinamos" a RPM medida com o
+// sinal do setpoint (a direção que mandamos girar).
+void controlaVelocidadeP() {
+  unsigned long agora = millis();
+  if (agora - tempoControleAnterior < INTERVALO_CONTROLE) return;
+
+  float dt = (agora - tempoControleAnterior) / 1000.0;
+  tempoControleAnterior = agora;
+
+  // Lê e zera os contadores com as interrupções desligadas (evita corrida de dados).
+  noInterrupts();
+  long p1 = pulsos1; long p2 = pulsos2;
+  pulsos1 = 0; pulsos2 = 0;
+  interrupts();
+
+  // RPM em módulo
+  float rpm1 = (p1 / PULSOS_POR_VOLTA) / dt * 60.0;
+  float rpm2 = (p2 / PULSOS_POR_VOLTA) / dt * 60.0;
+
+  // Assina a RPM medida pelo sentido comandado
+  float rpm1_assinada = (setpointM1 >= 0 ? 1.0 : -1.0) * rpm1;
+  float rpm2_assinada = (setpointM2 >= 0 ? 1.0 : -1.0) * rpm2;
+
+  int pwm1, pwm2;
+
+  // Setpoint zero -> desliga o motor (para por inércia, sem frear ao contrário).
+  if (setpointM1 == 0.0) {
+    pwm1 = 0;
+  } else {
+    float erro1 = setpointM1 - rpm1_assinada;   // somente o termo P
+    pwm1 = (int)(Kp * erro1);
+  }
+
+  if (setpointM2 == 0.0) {
+    pwm2 = 0;
+  } else {
+    float erro2 = setpointM2 - rpm2_assinada;   // somente o termo P
+    pwm2 = (int)(Kp * erro2);
+  }
+
+  // Teto de segurança (evita o pico de corrente).
+  pwm1 = constrain(pwm1, -PWM_MAX, PWM_MAX);
+  pwm2 = constrain(pwm2, -PWM_MAX, PWM_MAX);
+
+  aplicaPWM_M1(pwm1);
+  aplicaPWM_M2(pwm2);
+}
+
+// Movimento AUTOMÁTICO: define a velocidade alvo (RPM) de cada roda.
+// Quem aciona os motores é o controlaVelocidadeP().
+void andarFrente(float v)   { setpointM1 =  v; setpointM2 =  v; }   // as duas pra frente
+void girarDireita(float v)  { setpointM1 =  v; setpointM2 = -v; }   // esq. frente, dir. ré
+void girarEsquerda(float v) { setpointM1 = -v; setpointM2 =  v; }   // esq. ré, dir. frente
 
 // Executa uma ação da sequência de busca
 void executaAcaoBusca(int codigo) {
@@ -120,9 +194,7 @@ void executaAcaoBusca(int codigo) {
   }
 }
 
-// ======================================================================================
 // Transições entre estados (sempre param os motores ao trocar)
-// ======================================================================================
 void entrarProcura() {
   parar();
   estadoAtual = PROCURANDO;
@@ -157,11 +229,9 @@ void entrarAlvoAlcancado() {
   informarTagEncontrada(id_tag);
 }
 
-// ======================================================================================
 // PROCURANDO: passos curtos em loop (frente -> direita -> esquerda -> frente -> ...)
 // A cada passo ele anda um pouco, PARA, e nessa pausa a câmera consegue enxergar.
 // Se a tag certa aparecer (visao_valida vira true), a máquina troca para APROXIMANDO.
-// ======================================================================================
 void executaProcura() {
   unsigned long agora = millis();
   unsigned long dur = emMovimento ? PROC_MOVER_MS : PROC_PAUSA_MS;
@@ -179,11 +249,9 @@ void executaProcura() {
   }
 }
 
-// ======================================================================================
-// APROXIMANDO: sem PID, controle simples por passos.
+// APROXIMANDO: controle simples por passos.
 // Se estiver torto -> gira pro lado da tag. Se estiver centralizado -> anda pra frente.
 // Quando fica perto E centralizado -> para de vez (ALVO_ALCANCADO).
-// ======================================================================================
 void executaAproximacao() {
   // Chegou? Perto o suficiente E alinhado o suficiente -> trava aqui.
   if (visao_dist <= DIST_ALVO && fabs(visao_ang) <= ANG_ALVO) {
@@ -213,9 +281,7 @@ void executaAproximacao() {
   }
 }
 
-// ======================================================================================
 // Máquina de estados (chamada continuamente no modo automático)
-// ======================================================================================
 void executaMaquinaDeEstados() {
   // Perdeu a tag de vista? (faz tempo demais sem receber VIS_COMP dela)
   if (millis() - tempoUltimaVisao > TIMEOUT_VISAO) {
@@ -248,11 +314,9 @@ void executaMaquinaDeEstados() {
   }
 }
 
-// ======================================================================================
 // Recebe "VIS_COMP:ID;DIST;ANG" do Raspberry e atualiza os dados da visão.
 // Faço o parsing na mão (indexOf/substring) porque o sscanf com %f do Arduino AVR
 // costuma NÃO ler número decimal e devolver zero. toFloat()/toInt() são confiáveis.
-// ======================================================================================
 void ajustaCaminhoAutomatico(String texto_info) {
   int p1 = texto_info.indexOf(':');
   int p2 = texto_info.indexOf(';', p1 + 1);
@@ -290,9 +354,7 @@ void definirAlvo(String texto) {
   entrarProcura();
 }
 
-// ======================================================================================
 // Setup e Loop
-// ======================================================================================
 void setup() {
   Serial.begin(115200); delay(500);
   Serial.println("Iniciando programa empilhadeira....");
@@ -301,6 +363,13 @@ void setup() {
   pinMode(segundoMotorPin1, OUTPUT);  pinMode(segundoMotorPin2, OUTPUT);
   pinMode(motorElevarPin1, OUTPUT);   pinMode(motorElevarPin2, OUTPUT);
 
+  pinMode(primeiroMotorEncoder, INPUT);
+  pinMode(segundoMotorEncoder, INPUT);
+
+  attachInterrupt(digitalPinToInterrupt(primeiroMotorEncoder), lerPrimeiroMotor, RISING);
+  attachInterrupt(digitalPinToInterrupt(segundoMotorEncoder), lerSegundoMotor, RISING);
+
+  tempoControleAnterior = millis();
   parar();
 }
 
@@ -350,8 +419,10 @@ void loop() {
     }
   }
 
-  // 2) No modo automático, a máquina de estados cuida de tudo.
+  // 2) No modo automático: máquina de estados define os alvos de velocidade
+  //    e o controle P (encoders) aciona os motores.
   if (!modo_manual) {
     executaMaquinaDeEstados();
+    controlaVelocidadeP();
   }
 }
