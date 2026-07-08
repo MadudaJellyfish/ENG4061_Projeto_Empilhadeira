@@ -1,6 +1,35 @@
+/*
+================================================================================
+   PROJETO DE ROBÓTICA: EMPILHADEIRA AUTÔNOMA COM DETECÇÃO DE TAGS
+================================================================================
+
+OBJETIVO:
+  Controlar uma empilhadeira Lego que se move de forma autônoma buscando e 
+  aproximando-se de tags AprilTags detectadas pela câmera (Raspberry Pi).
+
+MODOS DE OPERAÇÃO:
+  1. MANUAL: Controlada via MQTT pelo servidor (joystick)
+  2. AUTOMÁTICO: Máquina de estados que busca tags via visão computacional
+
+COMPONENTES PRINCIPAIS:
+  - Arduino (este arquivo): Controle dos motores e estados
+  - Raspberry Pi (main.py): Detecção de tags + visão computacional
+  - Servidor (servidor.py): Interface MQTT + GUI para usuário
+
+FLUXO DE COMUNICAÇÃO:
+  Arduino <--(Serial)--> Raspberry Pi <--(MQTT)--> Servidor
+
+MÁQUINA DE ESTADOS AUTOMÁTICA:
+  IDLE -> PROCURANDO -> APROXIMANDO -> ALVO_ALCANCADO
+
+================================================================================
+*/
+
 #include <Arduino.h>
 
-// Pinos
+// ============================================================================
+// CONFIGURAÇÃO DE PINOS (Referência do Hardware)
+// ============================================================================
 int primeiroMotorPin1 = 2;   // Motor 1 = roda ESQUERDA
 int primeiroMotorPin2 = 3;
 
@@ -13,9 +42,11 @@ int motorElevarPin2 = 7;
 int primeiroMotorEncoder = 18;
 int segundoMotorEncoder = 19;
 
-// Estado geral do robô
+// ============================================================================
+// VARIÁVEIS GLOBAIS: Estado do Robô
+// ============================================================================
 int id_tag = -1;             // Tag que estamos procurando. -1 = nenhuma (fica parado)
-bool modo_manual = false;
+bool modo_manual = false;    // true = controle manual via MQTT | false = automático
 
 // --- Máquina de estados do modo automático ---
 enum EstadoRobo { IDLE, PROCURANDO, APROXIMANDO, ALVO_ALCANCADO };
@@ -28,7 +59,11 @@ bool  visao_valida = false;  // true = estamos enxergando a tag alvo agora
 unsigned long tempoUltimaVisao = 0;
 const unsigned long TIMEOUT_VISAO = 1500;  // ms sem ver a tag => consideramos "perdida"
 
-// PARÂMETROS DE AJUSTE!!!!
+// ============================================================================
+// PARÂMETROS DE AJUSTE - TUNING DO CONTROLE
+// ============================================================================
+// NOTA: Ajuste estes parâmetros observando o comportamento do robô em testes.
+// Se der tranco ou instabilidade, diminua os ganhos (Kp, velocidades).
 
 // --- Alvo de VELOCIDADE (em RPM) ---
 // O controle P é quem transforma isso em PWM usando os encoders.
@@ -80,7 +115,10 @@ unsigned long tempoControleAnterior = 0;
 void lerPrimeiroMotor() { pulsos1++; }
 void lerSegundoMotor()  { pulsos2++; }
 
-// Controle Manual do Robô  (IGUALZINHO ao original - não mexi em nada aqui)
+// ============================================================================
+// FUNÇÕES DE MOVIMENTO: Controle Manual
+// ============================================================================
+// Estas funções controlam os motores diretamente nos pinos (modo manual)
 void irParaTras() {
   digitalWrite(primeiroMotorPin1, HIGH); digitalWrite(primeiroMotorPin2, LOW);
   digitalWrite(segundoMotorPin1, HIGH);  digitalWrite(segundoMotorPin2, LOW);
@@ -178,13 +216,21 @@ void controlaVelocidadeP() {
   aplicaPWM_M2(pwm2);
 }
 
-// Movimento AUTOMÁTICO: define a velocidade alvo (RPM) de cada roda.
-// Quem aciona os motores é o controlaVelocidadeP().
-void andarFrente(float v)   { setpointM1 =  v; setpointM2 =  v; }   // as duas pra frente
+// ============================================================================
+// FUNÇÕES DE MOVIMENTO: Controle Automático
+// ============================================================================
+// Estas funções definem os SETPOINTS de velocidade (RPM).
+// O controlador P (controlaVelocidadeP) lê o encoder e ajusta o PWM para
+// alcançar o setpoint. Funciona de forma não-bloqueante.
+
+void andarFrente(float v)   { setpointM1 =  v; setpointM2 =  v; }   // ambas as rodas para frente
 void girarDireita(float v)  { setpointM1 =  v; setpointM2 = -v; }   // esq. frente, dir. ré
 void girarEsquerda(float v) { setpointM1 = -v; setpointM2 =  v; }   // esq. ré, dir. frente
 
-// Executa uma ação da sequência de busca
+// ============================================================================
+// MÁQUINA DE ESTADOS - MODO PROCURANDO
+// ============================================================================
+// Executa uma ação da sequência de busca pré-definida (SEQ_BUSCA)
 void executaAcaoBusca(int codigo) {
   switch (codigo) {
     case 0: andarFrente(VEL_PROCURA);   Serial.println("Busca: frente");   break;

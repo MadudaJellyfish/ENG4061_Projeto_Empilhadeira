@@ -1,21 +1,56 @@
-import cv2
-import numpy as np
-import math
-import time
-import serial
-import threading
-import asyncio
-import websockets
-from pupil_apriltags import Detector
+#!/usr/bin/env python3
+"""
+================================================================================
+   RASPBERRY PI - VISÃO COMPUTACIONAL E COMUNICAÇÃO
+================================================================================
+
+RESPONSABILIDADES:
+  1. Capturar vídeo da câmera em tempo real
+  2. Detectar tags AprilTags usando Pupil Labs (detecção 2D e 3D)
+  3. Transmitir vídeo para o servidor via WebSocket (feedback visual)
+  4. Enviar dados de visão ao Arduino via Serial (controle automático)
+  5. Receber comandos MQTT do servidor
+
+FLUXO PRINCIPAL:
+  Câmera -> Detector AprilTags -> Serial para Arduino + WebSocket para Servidor
+                                -> MQTT (status/eventos)
+
+TAGS AprilTag:
+  - Família: tag25h9
+  - Tamanho: 5cm (0.05m)
+  - Formato de envio: VIS_COMP:id;distancia;bearing
+
+"""
+
+import cv2                          # Processamento de imagem
+import numpy as np                  # Operações numéricas
+import math                         # Trigonometria
+import time                         # Controle de tempo
+import serial                       # Comunicação com Arduino
+import threading                    # Threads para servidor WebSocket
+import asyncio                      # Event loop assíncrono
+import websockets                   # WebSocket para streaming de vídeo
+from pupil_apriltags import Detector  # Detecção de tags
 
 # Importa o módulo de comunicacao_mqtt 
 import comunicacao_mqtt
 
-# --- Variável global para o Streaming WebSocket ---
-frame_bytes_ws = b''
+# ============================================================================
+# VARIÁVEIS GLOBAIS
+# ============================================================================
+frame_bytes_ws = b''    # Buffer com o frame JPEG codificado para envio
 
 # O '*args' garante que vai funcionar independente da versão do websockets do RPi
+# ============================================================================
+# SERVIDOR WEBSOCKET - Streaming de Vídeo para o Cliente
+# ============================================================================
+
 async def stream_video(websocket, *args):
+    """
+    Envia frames de vídeo JPEG comprimidos via WebSocket a cada nova imagem.
+    - Usa '*args' para compatibilidade com múltiplas versões do websockets
+    - Envia apenas quando há novo frame disponível
+    """
     global frame_bytes_ws
     ultimo_frame_enviado = b''
     
@@ -46,11 +81,24 @@ def iniciar_servidor_ws():
     asyncio.run(run_ws_server())
 
 
+# ============================================================================
+# FUNÇÕES AUXILIARES - Conversão e Comunicação
+# ============================================================================
+
 def get_robot_yaw(R):
+    """
+    Extrai o ângulo yaw (rotação em Z) da matriz de rotação 3x3 do AprilTag.
+    Retorna o ângulo em GRAUS (positivo = rotação anti-horária).
+    """
     yaw_rad = math.atan2(R[0, 2], R[2, 2])
     return math.degrees(yaw_rad)
 
 def configurar_arduino():
+    """
+    Abre a conexão Serial com o Arduino para envio de comandos.
+    Porta: /dev/ttyACM0 (padrão para Arduino em Linux)
+    Baudrate: 115200 (deve corresponder ao Arduino)
+    """
     porta = '/dev/ttyACM0'
     baudrate = 115200
     try:
@@ -62,9 +110,21 @@ def configurar_arduino():
         print(f"Erro na comunicação com o Arduino: {e}")
         return None
 
+# ============================================================================
+# FUNÇÃO PRINCIPAL
+# ============================================================================
+
 def main():
+    """
+    Inicializa todos os componentes e executa o loop principal:
+    1. Lê frame da câmera
+    2. Detecta tags AprilTags
+    3. Envia dados ao Arduino (Serial) e Servidor (WebSocket)
+    4. Processa mensagens MQTT do servidor
+    """
     global frame_bytes_ws
     
+    # Inicializa conexões
     ser = configurar_arduino()
     mqtt_client = comunicacao_mqtt.inicializar_mqtt(ser)
 

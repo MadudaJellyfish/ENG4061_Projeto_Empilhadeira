@@ -1,3 +1,26 @@
+"""
+================================================================================
+   SERVIDOR - Interface de Controle do Robô
+================================================================================
+
+RESPONSABILIDADES:
+  1. GUI em Tkinter para controle do robô
+  2. Conexão MQTT para envio de comandos
+  3. WebSocket para recepção de vídeo da câmera (Raspberry Pi)
+  4. Exibição de vídeo em tempo real com overlay de informações
+
+COMPONENTES:
+  - Painel de controle: botões de movimento (frente, tras, esquerda, direita)
+  - Tela de vídeo: feed da câmera com detecção de tags
+  - Indicador de status: modo manual/automático, estado de conexão
+  - Teclas de atalho: setas do teclado para movimentação rápida
+
+FLUXO DE COMUNICAÇÃO:
+  Servidor <- (MQTT) -> Raspberry Pi <- (Serial) -> Arduino
+  Servidor <- (WebSocket) <- Raspberry Pi <- (câmera) -> tags AprilTags
+
+"""
+
 import paho.mqtt.client as mqtt
 from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
@@ -12,6 +35,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ============================================================================
+# CONFIGURAÇÕES DO BROKER MQTT
+# ============================================================================
 BROKER = os.getenv("BROKER")
 PORT = int(os.getenv("PORT"))
 USER = os.getenv("USER")
@@ -20,41 +46,50 @@ PASSWORD = os.getenv("PASSWORD")
 IP_RASPBERRY = os.getenv("IP_RASPBERRY")
 WS_PORT = int(os.getenv("WS_PORT"))
 
-# Variáveis globais
-latest_frame = None
-modo_manual_ativo = False
-MQTT_PREFIX = "BMML"
-root = None
-status_var = None
-
+# ============================================================================
+# VARIÁVEIS GLOBAIS
+# ============================================================================
+latest_frame = None        # Frame mais recente do WebSocket
+modo_manual_ativo = False  # Estado do modo de controle
+MQTT_PREFIX = "BMML"       # Prefixo dos tópicos MQTT
+root = None                # Janela Tkinter
+status_var = None          # Variável de status da GUI
 
 def mqtt_topic(nome):
+    """Constrói o nome completo do tópico MQTT."""
     return f"{MQTT_PREFIX}/{nome}"
 
-# --- Rastreador de teclas agora inclui os garfos ---
+# ============================================================================
+# RASTREAMENTO DE ESTADO DAS TECLAS
+# ============================================================================
+# Mantém o estado de quais teclas estão pressionadas para evitar envio repetido
 estado_teclas = {
-    "FRENTE": False,
-    "TRAS": False,
-    "ESQUERDA": False,
-    "DIREITA": False,
-    "SUBIR": False,
-    "DESCER": False
+    "FRENTE": False,      # Rodas para frente
+    "TRAS": False,        # Rodas para trás
+    "ESQUERDA": False,    # Girar esquerda
+    "DIREITA": False,     # Girar direita
+    "SUBIR": False,       # Garfo para cima
+    "DESCER": False       # Garfo para baixo
 }
 
-# --- Lógica MQTT (Apenas Comandos) ---
+# ============================================================================
+# CALLBACKS DO MQTT
+# ============================================================================
 def on_connect(client, userdata, flags, rc):
+    """Chamado quando se conecta ao broker MQTT."""
     print("Código MQTT conectado:", rc)
     client.subscribe(mqtt_topic("comando"))
     client.subscribe(mqtt_topic("status"))
 
 
 def atualizar_status(mensagem):
+    """Atualiza o label de status na GUI de forma thread-safe."""
     global root, status_var
     if root is not None and status_var is not None and root.winfo_exists():
         root.after(0, lambda: status_var.set(f"Status: {mensagem}"))
 
-
 def on_message(client, userdata, msg):
+    """Processa mensagens recebidas do broker MQTT."""
     topico = msg.topic
     try:
         payload = msg.payload.decode("utf-8")
@@ -67,12 +102,16 @@ def on_message(client, userdata, msg):
         return
 
 def envia_mensagem(msg, topico):
+    """Publica uma mensagem num tópico MQTT."""
     topico_com_prefixo = mqtt_topic(topico)
     print(f"Enviando '{msg}' -> {topico_com_prefixo}")
     client.publish(topico_com_prefixo, msg, qos=2, properties=properties)
 
-# --- Lógica WebSocket (Apenas Imagem) ---
+# ============================================================================
+# CALLBACKS DO WEBSOCKET - Streaming de Vídeo
+# ============================================================================
 def on_ws_message(ws, message):
+    """Recebe frames JPEG do WebSocket e decodifica para exibição."""
     global latest_frame
     
     if isinstance(message, bytes):
@@ -86,12 +125,15 @@ def on_ws_message(ws, message):
             print("Falha ao decodificar a imagem do WebSocket.")
 
 def on_ws_open(ws):
+    """Chamado quando a conexão WebSocket é estabelecida."""
     print("✅ Vídeo WebSocket CONECTADO com sucesso ao Raspberry!")
 
 def on_ws_error(ws, error):
+    """Chamado quando ocorre um erro na conexão WebSocket."""
     print(f"❌ Erro no WebSocket de vídeo (o Raspberry está na mesma rede?): {error}")
 
 def iniciar_websocket():
+    """Inicia a thread de conexão WebSocket para recepção de vídeo."""
     print(f"Conectando ao vídeo WebSocket em ws://{IP_RASPBERRY}:{WS_PORT}...")
     ws = websocket.WebSocketApp(
         f"ws://{IP_RASPBERRY}:{WS_PORT}", 
@@ -101,10 +143,13 @@ def iniciar_websocket():
     )
     ws.run_forever()
 
-# --- Lógica de Controle ---
-cancelar_parada_ids = {} # Memória para ignorar o "falso soltar" da tecla
+# ============================================================================
+# FUNÇÕES DE CONTROLE - Manipulação de Teclado e Mouse
+# ============================================================================
+cancelar_parada_ids = {}  # Armazena IDs de callbacks para evitar paradas falsas
 
 def alternar_modo_manual():
+    """Alterna entre modo manual e automático."""
     global modo_manual_ativo
     modo_manual_ativo = not modo_manual_ativo
     
@@ -120,7 +165,15 @@ def alternar_modo_manual():
     root.focus_set() 
 
 def iniciar_movimento(direcao, event=None):
-    # Se havia uma ordem de parada falsa agendada, nós a cancelamos!
+    """
+    Inicia movimento na direção indicada.
+    Cancela pausas falsas (debounce de teclado).
+    
+    Argumentos:
+      direcao: FRENTE, TRAS, ESQUERDA, DIREITA, SUBIR, DESCER
+      event: evento de teclado (se None, veio de clique de mouse)
+    """
+    # Cancelamento de "falso soltar" - quando você segura, larga rápido e segura de novo
     if direcao in cancelar_parada_ids and cancelar_parada_ids[direcao] is not None:
         root.after_cancel(cancelar_parada_ids[direcao])
         cancelar_parada_ids[direcao] = None

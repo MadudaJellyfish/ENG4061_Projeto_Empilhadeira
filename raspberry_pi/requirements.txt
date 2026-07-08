@@ -1,3 +1,7 @@
-cv2
+opencv-python
 pupil-apriltags
 numpy
+pyserial
+websockets
+paho-mqtt
+python-dotenv

@@ -1,29 +1,86 @@
+"""
+================================================================================
+   CALIBRAÇÃO DE CÂMERA
+================================================================================
+
+OBJETIVO:
+  Calcular os parâmetros intrínsecos da câmera (matrix K, distorção) usando
+  um tabuleiro de xadrez. Esses parâmetros são necessários para que o AprilTag
+  detector possa calcular a pose 3D das tags (posição e orientação).
+
+PROCESSO:
+  1. Capture 20+ imagens do tabuleiro em diferentes ângulos (script pedirá)
+  2. O algoritmo detecta os cantos da grade
+  3. Calcula a matrix de câmera e coeficientes de distorção
+  4. Salva em 'params_multilaser.npz' para uso posterior
+
+RESULTADOS SALVOS:
+  - mtx: Matrix intrínseca 3x3 (fx, fy, cx, cy)
+  - dist: Coeficientes de distorção (até 5 parâmetros)
+  - rvecs: Vetores de rotação (um por imagem capturada)
+  - tvecs: Vetores de translação (um por imagem capturada)
+
+IMPORTANTE:
+  - Tabuleiro deve estar completamente visível em cada capture
+  - Varie ângulos e posições para melhor calibração
+  - Quanto melhor a calibração, mais precisa será a detecção de pose!
+
+"""
+
 import cv2
 import numpy as np
 
-# Configurações do tabuleiro
-CHECKERBOARD = (8, 5) # Cantos internos do seu tabuleiro
-SQUARE_SIZE = 0.025   # Tamanho do quadrado em METROS (ex: 2.5cm = 0.025)
+# ============================================================================
+# CONFIGURAÇÕES DO TABULEIRO DE XADREZ
+# ============================================================================
+CHECKERBOARD = (8, 5)  # Número de cantos INTERNOS (largura, altura)
+SQUARE_SIZE = 0.025    # Tamanho real de cada quadrado em METROS (2.5cm)
 
-# Classe que organiza a calibração da camera
+# ============================================================================
+# CLASSE DE CALIBRAÇÃO
+# ============================================================================
 class Calibration:
+    """
+    Gerencia todo o processo de calibração de câmera.
+    
+    Atributos:
+      capture: objeto VideoCapture do OpenCV
+      objp: modelo 3D do tabuleiro (pontos em coordenadas do mundo)
+      objpoints: lista de pontos 3D capturados (um set por imagem)
+      imgpoints: lista de pontos 2D capturados (um set por imagem)
+    """
+    
     def __init__(self):
+        # Abre a câmera (índice 1 = câmera USB secundária)
         self.capture = cv2.VideoCapture(1)
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+        
+        # Critério de parada para refinamento de cantos (epsilon ou max iterações)
         self.criterio = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
         
-        # Modelo matemático do tabuleiro
+        # Gera modelo 3D do tabuleiro (pontos no plano Z=0, em coordenadas reais)
         self.objp = np.zeros((CHECKERBOARD[0] * CHECKERBOARD[1], 3), np.float32) 
         self.objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2) * SQUARE_SIZE
         
-        # Arrays com os pontos do mundo real e do plano da imagem
-        self.objpoints = [] # Pontos 3d no mundo real
-        self.imgpoints = [] # Pontos 2d no plano da imagem
+        # Listas para armazenar pontos capturados
+        self.objpoints = []  # Pontos 3D no mundo real (mesmo para todas as imagens)
+        self.imgpoints = []  # Pontos 2D na imagem (diferentes por imagem)
 
-    # ------------------------------------------ #
-    # Captura a imagem do tabuleiro
+    # ========================================================================
+    # CAPTURA DE IMAGENS DO TABULEIRO
+    # ========================================================================
+    
     def capture_chess_image(self):
+        """
+        Interface interativa para capturar imagens do tabuleiro de xadrez.
+        
+        Controles:
+          's' = Salvar frame (se tabuleiro detectado)
+          'q' = Encerrar captura e processar calibração
+        
+        Recomendação: Capture pelo menos 20 imagens em diferentes ângulos!
+        """
         print("Pressione 's' para salvar um frame ou 'q' para terminar a captura e iniciar a calibração.")
         print("Capture pelo menos 20 imagens!!!")
         
@@ -70,9 +127,15 @@ class Calibration:
         self.capture.release()
         cv2.destroyAllWindows()
 
-    # ------------------------------------- #
-    # Pega os pontos do mundo 3d e compara com os pontos 2d distorcidos capturados pela câmera
+    # ========================================================================
+    # CALIBRAÇÃO (Cálculo de Parâmetros)
+    # ========================================================================
+    
     def calibrate(self):
+        """
+        Calcula a matrix intrínseca e coeficientes de distorção usando
+        todos os pontos capturados. Salva resultado em 'params_multilaser.npz'.
+        """
         ret, self.mtx, self.distort, self.rvecs, self.tvecs = cv2.calibrateCamera(
             self.objpoints, self.imgpoints, self.gray.shape[::-1], None, None
         )
@@ -83,8 +146,15 @@ class Calibration:
         print("Calibração salva com sucesso no arquivo 'params_multilaser.npz'!")
         np.savez('params_multilaser.npz', mtx=self.mtx, dist=self.distort, rvecs=self.rvecs, tvecs=self.tvecs)
 
-    # --------------------------------------- #
+    # ========================================================================
+    # CORREÇÃO DE DISTORÇÃO (Undistort)
+    # ========================================================================
+    
     def undistort(self):
+        """
+        Remove a distorção da imagem usando os parâmetros calibrados.
+        Útil para visualização e verificação da qualidade.
+        """
         h, w = self.img.shape[:2]
         self.newcameramtx, self.roi = cv2.getOptimalNewCameraMatrix(self.mtx, self.distort, (w,h), 1, (w,h))
         
